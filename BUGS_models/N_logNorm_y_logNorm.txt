@@ -20,5 +20,9 @@ model{
   beta0 ~ dnorm(0, 0.01)
   beta1 ~ dnorm(0, 0.01)
   
-  tauState ~ dgamma(0.1, 0.1)
+  tauState ~ dgamma(0.1, 0.1) T(1,  )
+  
+  #Derived quantities added for predictions - RC
+  lambdaAvg  <- exp(beta0)         #growth multiplier at average rainfall
+  pBeta1Pos  <- step(beta1)        #1 if beta1 > 0; its mean = Pr(beta1 > 0)
 }

@@ -12,8 +12,6 @@ library(tibble)
 
 data("wildebeest")
 
-windowsFonts(Font = windowsFont("CMU Serif"))
-
 #Path to BUGS model
 modelPath <- "BUGS_models/N_logNorm_y_norm.txt" #Other model is N_logNorm_y_logNorm.txt
 
@@ -30,25 +28,44 @@ if (modelPath == "BUGS_models/N_logNorm_y_logNorm.txt"){
   tauObs[is.na(tauObs)] <- 1
 }
 
-#Model data
-data <- list(n        = nrow(wildebeest),
-             y        = wildebeest$Nhat,
-             rain     = wildebeest$rain,
-             removals = wildebeest$Catch,
+#Add data to 1994 - RC
+nproj <- 5
+yrs   <- c(wildebeest$year, max(wildebeest$year) + 1:nproj)      #1960-1994
+
+#Center rainfall around mean, so that B0 is informative - RC
+rainMean <- mean(wildebeest$rain)
+rain     <- c(wildebeest$rain, rep(rainMean, nproj)) - rainMean
+
+#Harvest assumption that removals continue at current rate - RC
+removals <- c(wildebeest$Catch, rep(tail(wildebeest$Catch, 1), nproj))
+
+#No observations in projection years, fill-in precision is arbitrary and ignored - RC
+y      <- c(wildebeest$Nhat, rep(NA, nproj))
+tauObs <- c(tauObs,          rep(1,  nproj))
+
+#Model data (changed to match updated vars - RC)
+data <- list(n        = length(yrs),
+             y        = y,
+             rain     = rain,
+             removals = removals,
              tauObs   = tauObs)
 
-#Initial values for MCMC chains
-chainInits <- list(list(N = rep(2, nrow(wildebeest)), beta0 = 0, beta1 = 0, tauState = 1),
-                   list(N = rep(2, nrow(wildebeest)), beta0 = 0, beta1 = 0, tauState = 1))
+#Initial values for MCMC chains (changed so that chains start from different positions - RC)
+chainInits <- function(){
+  list(beta0    = runif(1, -0.2, 0.3),
+       beta1    = runif(1, -0.2, 0.2),
+       tauState = runif(1, 4, 400),
+       N        = c(runif(1, 0.1, 0.5), rep(NA, length(yrs) - 1)))
+}
 
-#Parameters to monitor
-monitors <- c("N", "y", "lambda", "tauState")
+#Parameters to monitor (added beto0,beta1,lambda,lambdaAvf,pBetaPos - RC)
+monitors <- c("N", "y", "lambda", "beta0", "beta1", "tauState", "lambdaAvg", "pBeta1Pos")
 
 #MCMC parameters
-niter   <- 100000
-nburnin <- 5000
+niter   <- 300000 # upped to bump ESS - RC
+nburnin <- 10000 # upped - RC
 thin    <- 1
-nchains <- 2
+nchains <- 3
 
 #JAGS model
 model <- jags(data  = data,
@@ -61,8 +78,8 @@ model <- jags(data  = data,
               n.thin = thin)
 
 #Diagnostic checks
-RHat <- model$Rhat  #All sufficiently low. Highest is 1.014071
-ESS  <- model$n.eff #Smallest is 835. I believe this is sufficient, but we can increase niter
+RHat <- model$Rhat  #All sufficiently low, all Rhat <1.01
+ESS  <- model$n.eff #All above 10k 
 
 #Get model samples
 samples <- model$samples
@@ -94,7 +111,7 @@ timeSeriesSE <- stochSummary$statistics[,4]
 stdDev       <- stochSummary$statistics[,2]
 
 #Time series SE / SD. 
-MCerrThumb <- timeSeriesSE/stdDev #All less than 0.05. So the changes in the 
+MCerrThumb <- timeSeriesSE/stdDev #All less than 0.005. So the changes in the 
                                   #MC estimates of the posterior means due to 
                                   #the MC simulation are negligible
 
@@ -106,6 +123,22 @@ chain2Df <- as.data.frame(chain2Samples)
 combinedChainsDf <- rbind(chain1Df,
                           chain2Df) %>%
   as.data.frame()
+
+#Report process s.d - easier to interpret than tau 
+sigmaDraws <- 1 / sqrt(combinedChainsDf$tauState)
+quantile(sigmaDraws, c(0.025, 0.5, 0.975))
+
+#Parameter summary (added to check predictions for brief - RC)
+paramSummary <- combinedChainsDf %>%
+  select(beta0, beta1, lambdaAvg, pBeta1Pos, 'N[35]') %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  summarise(mean  = mean(value),
+            sd    = sd(value),
+            lower = quantile(value, 0.025),
+            upper = quantile(value, 0.975))
+paramSummary
+#pBeta1Pos mean = posterior probability that rainfall increases growth
 
 #Function to summarise parameters and return data in long format
 getSummary <- function(var){
@@ -129,7 +162,7 @@ getSummary <- function(var){
   names(summ) <- paste0(names(summ), "_", var)
   
   summ <- summ %>%
-    mutate(year = wildebeest$year) %>%
+    mutate(year = yrs) %>% #changed to match added predicted years - RC
     select(-names(summ)[1])
   
   return(summ)
@@ -139,44 +172,44 @@ getSummary <- function(var){
 summObs   <- getSummary("y")
 summState <- getSummary("N")
 
-#Apped summaries to wildebeest data
-wildebeestSumm <- wildebeest %>%
-  left_join(summObs,   by = "year") %>%
-  left_join(summState, by = "year") %>%
+#Apped summaries to wildebeest data (changed to match new params - RC)
+wildebeestSumm <- data.frame(year = yrs) %>%
+  left_join(wildebeest, by = "year") %>%
+  left_join(summObs,    by = "year") %>%
+  left_join(summState,  by = "year") %>%
   mutate(observed = !is.na(Nhat))
 
-#Use observed values to fill in std. errors and credible intervals
-wildebeestSumm$sd_y   [!is.na(wildebeest$Nhat)] <- wildebeest$sehat[!is.na(wildebeest$Nhat)]
-wildebeestSumm$lower_y[!is.na(wildebeest$Nhat)] <- wildebeest$lci  [!is.na(wildebeest$Nhat)]
-wildebeestSumm$upper_y[!is.na(wildebeest$Nhat)] <- wildebeest$uci  [!is.na(wildebeest$Nhat)]
+#Use observed values to fill in std. errors and credible intervals (changed to match new prediction rows - RC)
+obs <- wildebeestSumm$observed
+wildebeestSumm$mean_y [obs] <- wildebeestSumm$Nhat [obs]
+wildebeestSumm$sd_y   [obs] <- wildebeestSumm$sehat[obs]
+wildebeestSumm$lower_y[obs] <- wildebeestSumm$lci  [obs]
+wildebeestSumm$upper_y[obs] <- wildebeestSumm$uci  [obs]
 
-wildebeestSumm$mean_y [is.na(wildebeest$Nhat)] <- NA
-wildebeestSumm$sd_y   [is.na(wildebeest$Nhat)] <- NA
-wildebeestSumm$lower_y[is.na(wildebeest$Nhat)] <- NA
-wildebeestSumm$upper_y[is.na(wildebeest$Nhat)] <- NA
+wildebeestSumm$mean_y [!obs] <- NA
+wildebeestSumm$sd_y   [!obs] <- NA
+wildebeestSumm$lower_y[!obs] <- NA
+wildebeestSumm$upper_y[!obs] <- NA
 
 #Plot populations
 ggplot(wildebeestSumm, aes(x = year)) +
-  #True state data
+  #NEW: shade projection period
+  annotate("rect", xmin = 1989.5, xmax = 1994.5, ymin = -Inf, ymax = Inf,
+           alpha = 0.1, fill = "orange") +
+  #True state
   geom_line(aes(y = mean_N, colour = "State")) +
   geom_point(aes(y = mean_N, colour = "State")) +
   geom_ribbon(aes(ymin = lower_N, ymax = upper_N, fill = "State"), alpha = 0.25) +
   #Observed data
   geom_point(aes(y = mean_y, colour = "Observation")) +
   geom_errorbar(aes(ymin = lower_y, ymax = upper_y, colour = "Observation")) +
-  #Formatting
   labs(x = "Year",
-       y = "Estimate",
-       title = "Estimate of population and observations over study period") +
+       y = "Population size (millions)",
+       title = "Estimated wildebeest population 1960-1989, projected to 1994") +
   scale_color_manual(name = "Process",
-                     values = c("State"       = "#000000",
-                                "Observation" = "#0261ff"),
-                     limits = c("State",
-                                "Observation")) +
+                     values = c("State" = "#000000", "Observation" = "#0261ff"),
+                     limits = c("State", "Observation")) +
   scale_fill_manual(name = "Process",
-                    values = c("State"       = "#000000",
-                               "Observation" = NA),
-                    limits = c("State",
-                               "Observation")) +
-  theme_bw() +
-  theme(text = element_text(family = "Font"))
+                    values = c("State" = "#000000", "Observation" = NA),
+                    limits = c("State", "Observation")) +
+  theme_bw()
