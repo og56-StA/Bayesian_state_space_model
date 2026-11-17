@@ -48,8 +48,7 @@ data <- list(n        = length(yrs),
              y        = y,
              rain     = rain,
              removals = removals,
-             tauObs   = tauObs,
-             obs_n    = which(!is.na(wildebeest$Nhat)))
+             tauObs   = tauObs)
 
 #Initial values for MCMC chains (changed so that chains start from different positions - RC)
 chainInits <- function(){
@@ -113,8 +112,8 @@ stdDev       <- stochSummary$statistics[,2]
 
 #Time series SE / SD. 
 MCerrThumb <- timeSeriesSE/stdDev #All less than 0.005. So the changes in the 
-                                  #MC estimates of the posterior means due to 
-                                  #the MC simulation are negligible
+#MC estimates of the posterior means due to 
+#the MC simulation are negligible
 
 #Convert chains to data frames
 chain1Df <- as.data.frame(chain1Samples)
@@ -146,9 +145,7 @@ getSummary <- function(var){
   varDf <- combinedChainsDf %>%
     select(starts_with(var))
   
-  parIdx <- as.numeric(sapply(names(varDf), function(x){substr(x, 3, nchar(x)-1)}))
-  
-  names(varDf) <- parIdx
+  names(varDf) <- 1:ncol(varDf)
   
   varDf <- varDf %>%
     pivot_longer(everything())
@@ -165,7 +162,7 @@ getSummary <- function(var){
   names(summ) <- paste0(names(summ), "_", var)
   
   summ <- summ %>%
-    mutate(year = yrs[parIdx]) %>% #changed to match added predicted years - RC
+    mutate(year = yrs) %>% #changed to match added predicted years - RC
     select(-names(summ)[1])
   
   return(summ)
@@ -175,7 +172,7 @@ getSummary <- function(var){
 summObs   <- getSummary("y")
 summState <- getSummary("N")
 
-#Append summaries to wildebeest data (changed to match new params - RC)
+#Apped summaries to wildebeest data (changed to match new params - RC)
 wildebeestSumm <- data.frame(year = yrs) %>%
   left_join(wildebeest, by = "year") %>%
   left_join(summObs,    by = "year") %>%
@@ -198,7 +195,7 @@ wildebeestSumm$upper_y[!obs] <- NA
 ggplot(wildebeestSumm, aes(x = year)) +
   #NEW: shade projection period
   annotate("rect", xmin = 1989.5, xmax = 1994.5, ymin = -Inf, ymax = Inf,
-           alpha = 0.1, fill = "black") +
+           alpha = 0.1, fill = "orange") +
   #True state
   geom_line(aes(y = mean_N, colour = "State")) +
   geom_point(aes(y = mean_N, colour = "State")) +
