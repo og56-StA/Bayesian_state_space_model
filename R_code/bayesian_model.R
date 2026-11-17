@@ -48,7 +48,8 @@ data <- list(n        = length(yrs),
              y        = y,
              rain     = rain,
              removals = removals,
-             tauObs   = tauObs)
+             tauObs   = tauObs,
+             obs_n    = which(!is.na(wildebeest$Nhat)))
 
 #Initial values for MCMC chains (changed so that chains start from different positions - RC)
 chainInits <- function(){
@@ -145,7 +146,9 @@ getSummary <- function(var){
   varDf <- combinedChainsDf %>%
     select(starts_with(var))
   
-  names(varDf) <- 1:ncol(varDf)
+  parIdx <- as.numeric(sapply(names(varDf), function(x){substr(x, 3, nchar(x)-1)}))
+  
+  names(varDf) <- parIdx
   
   varDf <- varDf %>%
     pivot_longer(everything())
@@ -162,7 +165,7 @@ getSummary <- function(var){
   names(summ) <- paste0(names(summ), "_", var)
   
   summ <- summ %>%
-    mutate(year = yrs) %>% #changed to match added predicted years - RC
+    mutate(year = yrs[parIdx]) %>% #changed to match added predicted years - RC
     select(-names(summ)[1])
   
   return(summ)
@@ -172,7 +175,7 @@ getSummary <- function(var){
 summObs   <- getSummary("y")
 summState <- getSummary("N")
 
-#Apped summaries to wildebeest data (changed to match new params - RC)
+#Append summaries to wildebeest data (changed to match new params - RC)
 wildebeestSumm <- data.frame(year = yrs) %>%
   left_join(wildebeest, by = "year") %>%
   left_join(summObs,    by = "year") %>%
@@ -195,7 +198,7 @@ wildebeestSumm$upper_y[!obs] <- NA
 ggplot(wildebeestSumm, aes(x = year)) +
   #NEW: shade projection period
   annotate("rect", xmin = 1989.5, xmax = 1994.5, ymin = -Inf, ymax = Inf,
-           alpha = 0.1, fill = "orange") +
+           alpha = 0.1, fill = "black") +
   #True state
   geom_line(aes(y = mean_N, colour = "State")) +
   geom_point(aes(y = mean_N, colour = "State")) +
