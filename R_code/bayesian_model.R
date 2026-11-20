@@ -136,7 +136,7 @@ paramSummary
 #Function to summarise parameters and return data in long format
 getSummary <- function(var){
   varDf <- combinedChainsDf %>%
-    select(starts_with(var))
+    select(starts_with(var) & ends_with("]")) #ends_with is to only select parameters with an index, i.e. NOT lambdaAvg
   
   names(varDf) <- 1:ncol(varDf)
   
@@ -162,12 +162,14 @@ getSummary <- function(var){
 }
 
 #Get state summaries
-summState <- getSummary("N")
+summState  <- getSummary("N")
+summLambda <- getSummary("lambda")
 
 #Apped summaries to wildebeest data (changed to match new params - RC)
 wildebeestSumm <- data.frame(year = yrs) %>%
   left_join(wildebeest, by = "year") %>%
   left_join(summState,  by = "year") %>%
+  left_join(summLambda, by = "year") %>%
   mutate(observed = !is.na(Nhat))
 
 #Plot populations
@@ -182,13 +184,30 @@ ggplot(wildebeestSumm, aes(x = year)) +
   #Observed data
   geom_point(aes(y = Nhat, colour = "Observation")) +
   geom_errorbar(aes(ymin = lci, ymax = uci, colour = "Observation")) +
+  #Labels
   labs(x = "Year",
        y = "Population size (millions)",
        title = "Estimated wildebeest population 1960-1989, projected to 1994") +
+  #Formatting
   scale_color_manual(name = "Process",
                      values = c("State" = "#000000", "Observation" = "#0261ff"),
                      limits = c("State", "Observation")) +
   scale_fill_manual(name = "Process",
                     values = c("State" = "#000000", "Observation" = NA),
                     limits = c("State", "Observation")) +
+  theme_bw()
+
+exclFirstYear <- wildebeestSumm %>%
+  filter(year > 1960)
+
+ggplot(exclFirstYear, aes(x = year)) +
+  #Lambda estimates
+  geom_line(aes(y = mean_lambda)) +
+  geom_point(aes(y = mean_lambda)) +
+  geom_ribbon(aes(ymin = lower_lambda, ymax = upper_lambda), alpha = 0.25) +
+  #Labels
+  labs(x = "Year",
+       y = "Growth rate",
+       title = "Estimated growth rate 1960-1989") +
+  #Formatting
   theme_bw()
