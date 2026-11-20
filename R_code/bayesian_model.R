@@ -15,18 +15,10 @@ data("wildebeest")
 #Path to BUGS model
 modelPath <- "BUGS_models/N_logNorm_y_norm.txt" #Other model is N_logNorm_y_logNorm.txt
 
-if (modelPath == "BUGS_models/N_logNorm_y_logNorm.txt"){
-  cv     <- wildebeest$cvhat
-  sigma2 <- log(1 + cv^2)
-  tauObs <- 1/sigma2
-  
-  tauObs[is.na(tauObs)] <- 1
-} else if (modelPath == "BUGS_models/N_logNorm_y_norm.txt"){
-  sigma2 <- wildebeest$sehat^2
-  tauObs <- 1/sigma2
-  
-  tauObs[is.na(tauObs)] <- 1
-}
+sigma2 <- wildebeest$sehat^2
+tauObs <- 1/sigma2
+
+obsIdx <- which(!is.na(wildebeest$Nhat))
 
 #Add data to 1994 - RC
 nproj <- 5
@@ -48,7 +40,8 @@ data <- list(n        = length(yrs),
              y        = y,
              rain     = rain,
              removals = removals,
-             tauObs   = tauObs)
+             tauObs   = tauObs,
+             obsIdx   = obsIdx)
 
 #Initial values for MCMC chains (changed so that chains start from different positions - RC)
 chainInits <- function(){
@@ -59,7 +52,7 @@ chainInits <- function(){
 }
 
 #Parameters to monitor (added beto0,beta1,lambda,lambdaAvf,pBetaPos - RC)
-monitors <- c("N", "y", "lambda", "beta0", "beta1", "tauState", "lambdaAvg", "pBeta1Pos")
+monitors <- c("N", "lambda", "beta0", "beta1", "tauState", "lambdaAvg", "pBeta1Pos")
 
 #MCMC parameters
 niter   <- 300000 # upped to bump ESS - RC
@@ -130,7 +123,7 @@ quantile(sigmaDraws, c(0.025, 0.5, 0.975))
 
 #Parameter summary (added to check predictions for brief - RC)
 paramSummary <- combinedChainsDf %>%
-  select(beta0, beta1, lambdaAvg, pBeta1Pos, 'N[35]') %>%
+  select(beta0, beta1, lambdaAvg, pBeta1Pos, "N[35]") %>%
   pivot_longer(everything()) %>%
   group_by(name) %>%
   summarise(mean  = mean(value),
@@ -168,28 +161,14 @@ getSummary <- function(var){
   return(summ)
 }
 
-#Get observation and state summaries
-summObs   <- getSummary("y")
+#Get state summaries
 summState <- getSummary("N")
 
 #Apped summaries to wildebeest data (changed to match new params - RC)
 wildebeestSumm <- data.frame(year = yrs) %>%
   left_join(wildebeest, by = "year") %>%
-  left_join(summObs,    by = "year") %>%
   left_join(summState,  by = "year") %>%
   mutate(observed = !is.na(Nhat))
-
-#Use observed values to fill in std. errors and credible intervals (changed to match new prediction rows - RC)
-obs <- wildebeestSumm$observed
-wildebeestSumm$mean_y [obs] <- wildebeestSumm$Nhat [obs]
-wildebeestSumm$sd_y   [obs] <- wildebeestSumm$sehat[obs]
-wildebeestSumm$lower_y[obs] <- wildebeestSumm$lci  [obs]
-wildebeestSumm$upper_y[obs] <- wildebeestSumm$uci  [obs]
-
-wildebeestSumm$mean_y [!obs] <- NA
-wildebeestSumm$sd_y   [!obs] <- NA
-wildebeestSumm$lower_y[!obs] <- NA
-wildebeestSumm$upper_y[!obs] <- NA
 
 #Plot populations
 ggplot(wildebeestSumm, aes(x = year)) +
@@ -201,8 +180,8 @@ ggplot(wildebeestSumm, aes(x = year)) +
   geom_point(aes(y = mean_N, colour = "State")) +
   geom_ribbon(aes(ymin = lower_N, ymax = upper_N, fill = "State"), alpha = 0.25) +
   #Observed data
-  geom_point(aes(y = mean_y, colour = "Observation")) +
-  geom_errorbar(aes(ymin = lower_y, ymax = upper_y, colour = "Observation")) +
+  geom_point(aes(y = Nhat, colour = "Observation")) +
+  geom_errorbar(aes(ymin = lci, ymax = uci, colour = "Observation")) +
   labs(x = "Year",
        y = "Population size (millions)",
        title = "Estimated wildebeest population 1960-1989, projected to 1994") +
