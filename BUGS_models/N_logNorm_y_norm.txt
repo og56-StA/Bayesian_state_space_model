@@ -20,7 +20,8 @@ model{
   beta0 ~ dnorm(0, 0.01)
   beta1 ~ dnorm(0, 0.01)
   
-  tauState ~ dgamma(0.1, 0.1) T(1,) #Changed as chains were getting stuck at 0 precision RC
+  sigmaState ~ dnorm(0, 0.01) T(0, )   # half-normal with SD 10
+  tauState  <- pow(sigmaState, -2)
   
   #Derived quantities added for predictions - RC
   lambdaAvg  <- exp(beta0)         #growth multiplier at average rainfall
