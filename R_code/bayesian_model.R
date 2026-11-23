@@ -4,6 +4,7 @@ library(statsecol)
 
 library(jagsUI)
 library(coda)
+library(posterior)
 
 library(tidyr)
 library(dplyr)
@@ -78,6 +79,12 @@ ESS  <- model$n.eff #All above 10k
 
 #Get model samples
 samples <- model$samples
+
+#Convert to draws array for "posterior" library
+draws <- as_draws_array(model$samples)
+
+#Get ess_bulk, ess_talk, and rhat
+ess_df <- summarise_draws(draws, "ess_bulk", "ess_tail", "rhat")
 
 #Get samples from each chain
 chain1Samples <- samples[[1]]
