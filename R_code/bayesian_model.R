@@ -12,6 +12,8 @@ library(tibble)
 
 data("wildebeest")
 
+set.seed(5767)
+
 #Path to BUGS model
 modelPath <- "BUGS_models/N_logNorm_y_norm.txt" #Other model is N_logNorm_y_logNorm.txt
 
@@ -80,6 +82,7 @@ samples <- model$samples
 #Get samples from each chain
 chain1Samples <- samples[[1]]
 chain2Samples <- samples[[2]]
+chain3Samples <- samples[[3]]
 
 #Function to get only stochastic nodes. E.g. not the known observations
 getStoch <- function(samples){
@@ -91,9 +94,10 @@ getStoch <- function(samples){
 #Get samples from stochastic nodes for each chain
 chain1Stoch <- getStoch(chain1Samples)
 chain2Stoch <- getStoch(chain2Samples)
+chain3Stoch <- getStoch(chain3Samples)
 
 #Combine them
-combinedStoch    <- mcmc.list(lapply(samples, function(ch) as.mcmc(getStoch(ch))))
+combinedStoch <- mcmc.list(lapply(samples, function(ch) as.mcmc(getStoch(ch))))
 
 #Get the summary
 stochSummary <- summary(combinedStoch)
@@ -110,6 +114,7 @@ MCerrThumb <- timeSeriesSE/stdDev #All less than 0.005. So the changes in the
 #Convert chains to data frames
 chain1Df <- as.data.frame(chain1Samples)
 chain2Df <- as.data.frame(chain2Samples)
+chain3Df <- as.data.frame(chain3Samples)
 
 #Combine them, 3 chains RC
 combinedChainsDf <- do.call(rbind, lapply(samples, as.data.frame))
@@ -199,9 +204,16 @@ fig1 <- ggplot(wildebeestSumm, aes(x = year)) +
                 width = 0.4, na.rm = TRUE) +
   geom_point(aes(y = Nhat, colour = "Survey estimate (95% CI)"),
              size = 2, na.rm = TRUE) +
-  scale_colour_manual(values = c("Estimated abundance (95% CrI)" = "black",
-                                 "Survey estimate (95% CI)"      = "#0072B2")) +
-  scale_fill_manual(values = c("Estimated abundance (95% CrI)" = "grey55")) +
+  scale_colour_manual(name = NULL,
+                      values = c("Estimated abundance (95% CrI)" = "black",
+                                 "Survey estimate (95% CI)"      = "#0072B2"),
+                      limits = c("Estimated abundance (95% CrI)",
+                                 "Survey estimate (95% CI)")) +
+  scale_fill_manual(name = NULL,
+                    values = c("Estimated abundance (95% CrI)" = "grey55",
+                               "Survey estimate (95% CI)"      = NA),
+                    limits = c("Estimated abundance (95% CrI)",
+                               "Survey estimate (95% CI)")) +
   scale_x_continuous(breaks = seq(1960, 1995, 5), expand = c(0.01, 0)) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
   labs(x = "Year", y = "Wildebeest abundance (millions)") +
@@ -241,7 +253,9 @@ projDf <- data.frame(
   year  = rep(c("1989 (last survey year)", "1994 (projected)"),
               each = nrow(combinedChainsDf)))
 
-projMed <- projDf %>% group_by(year) %>% summarise(med = median(value))
+projMed <- projDf %>% 
+  group_by(year) %>% 
+  summarise(med = median(value))
 
 fig3 <- ggplot(projDf, aes(value, fill = year)) +
   geom_density(alpha = 0.5, colour = NA) +
@@ -322,3 +336,24 @@ ggsave("fig5_growth_harvest.png", fig5, width = 7, height = 6, dpi = 300)
 
 #Numbers for the text
 mean(combinedChainsDf$`N[35]` > combinedChainsDf$`N[30]`)   #Pr(larger in 1994 than 1989)
+
+lamYearDf <- summLambda %>%
+  filter(year > 1960) %>%
+  mutate(year = year - 1/2)
+
+fig6 <- ggplot(lamYearDf, aes(x = year, y = median_lambda)) +
+  annotate("rect", xmin = 1989, xmax = 1994, ymin = -Inf, ymax = Inf,
+           fill = "grey92") +
+  annotate("text", x = 1991.5, y = Inf, label = "Projection",
+           vjust = 1.5, size = 3.5, colour = "grey30") +
+  geom_point() +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower_lambda, ymax = upper_lambda), fill = "grey55", alpha = 0.4) +
+  geom_hline(aes(yintercept = 1), linetype = "dotted") +
+  labs(x = "Year",
+       y = expression("Annual growth multiplier (" * lambda * ")")) +
+  theme_report
+
+ggsave("fig6_lambda_year.png", fig6, width = 7, height = 6, dpi = 300)
+
+plot(fig6)
